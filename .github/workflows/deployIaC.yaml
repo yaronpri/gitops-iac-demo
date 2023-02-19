@@ -1,0 +1,139 @@
+name: IaC Deployment
+env:  
+  PREFIX: ypdemo
+  REGION: westeurope
+# Controls when the action will run. 
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  push:
+    branches: 
+      - "**"
+    paths: 
+      - 'infra/**'
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  Setup_Job:
+    runs-on: ubuntu-latest
+    outputs:
+      guid: ${{ steps.getvariable.outputs.guid }}
+    steps:
+      - name: getvariable
+        id: getvariable      
+        run: |
+          echo "guid=$(uuidgen)" >> $GITHUB_OUTPUT
+  Security_Scanning:
+    runs-on: ubuntu-latest 
+    needs: [Setup_Job]
+    steps:    
+    - name: Checkout source code 
+      uses: actions/checkout@v3
+    - name: Run Checkov action
+      id: checkov
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: ./infra
+        check: ${{ env.CHECKS }} #,CKV_AZURE_5,CKV_AZURE_6,CKV_AZURE_7,CKV_AZURE_8 # optional: run only a specific check_id. can be comma separated list
+        soft_fail: false # optional: do not return an error code if there are failed checks
+        download_external_modules: true # optional: download external terraform modules from public git repositories and terraform registry
+        framework: bicep # optional: run only on a specific infrastructure {cloudformation,terraform,kubernetes,all}
+        #file: sec-plan # optional: provide the path for resource to be scanned. This will override the directory if both are provided.
+        #log_level: DEBUG # optional: set log level. Default WARNING
+  WhatIf:
+    runs-on: ubuntu-latest
+    needs: [Setup_Job]
+    environment: whatif
+    steps:
+    - name: Checkout source code 
+      uses: actions/checkout@v3
+    - name: 'Az CLI login'
+      uses: azure/login@v1
+      with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Run Whatif Scenario
+      uses: azure/arm-deploy@v1
+      with:
+        subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION }}
+        scope: subscription
+        region: ${{ env.REGION }}
+        template: ./infra/dev.bicep
+        parameters: name="${{ env.PREFIX }}dev" sshpublickey="${{ secrets.SSH_PUBLIC_KEY }}"
+        additionalArguments: "--what-if"
+  Deployment_IaC:
+    runs-on: ubuntu-latest
+    needs: [Setup_Job, WhatIf, Security_Scanning] 
+    outputs:
+      resourcegroupname: ${{ steps.deploy.outputs.resourcegroupname }}
+      aksresourcename: ${{ steps.deploy.outputs.aksresourcename }}
+      acrloginserver: ${{ steps.deploy.outputs.acrloginserver }}
+    steps:
+    - name: Checkout source code 
+      uses: actions/checkout@v3
+    - name: 'Az CLI login'
+      uses: azure/login@v1
+      with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Bicep Deployment
+      id: deploy
+      uses: azure/arm-deploy@v1
+      with:
+        subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION }}
+        scope: subscription
+        region: ${{ env.REGION }}
+        template: ./infra/dev.bicep
+        parameters: name="${{ env.PREFIX }}dev" sshpublickey="${{ secrets.PUBLIC_KEY }}"
+        failOnStdErr: false
+        deploymentName: dev-${{ needs.Setup_Job.outputs.guid }}
+  Install_ArgoCD:    
+    runs-on: ubuntu-latest    
+    needs: [Deployment_IaC]        
+    steps:  
+    - name: Checkout source code 
+      uses: actions/checkout@v3
+    - name: 'Az CLI login'
+      uses: azure/login@v1
+      with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Set AKS context
+      id: set-context
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: '${{ needs.Deployment_IaC.outputs.resourcegroupname }}' 
+        cluster-name: '${{ needs.Deployment_IaC.outputs.aksresourcename }}'
+    - name: Install ArgoCD on AKS
+      id: argocd
+      run: |
+        kubectl create namespace argocd
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml   
+        kubectl apply -n argocd -f ./argoCD/argo-server/argocd-service-loadbalancer.yaml        
+        sleep 45
+        kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+        kubectl get svc argocd-server-loadbalancer -nargocd  -o jsonpath="{.status.loadBalancer.ingress[0].ip}" | base64 -d; echo        
+  UpdateArgoAppRepoConfig:
+    needs: [Deployment_IaC]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Use config repository
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ github.repository_owner }}/argocd-apps-config
+        ref: main
+        token: ${{ secrets.ACTIONS_TOKEN }}
+    - name: Push commit to ArgoCD App repository
+      run: |        
+        git config user.name $(git log -n 1 --pretty=format:%an)
+        git config user.email $(git log -n 1 --pretty=format:%ae)        
+        echo ${{ needs.Deployment_IaC.outputs.resourcegroupname }} > global/rg-dev
+        echo ${{ needs.Deployment_IaC.outputs.aksresourcename }} > global/aks-dev
+        echo ${{ needs.Deployment_IaC.outputs.acrloginserver }} > helm/demo-app/dynamic/acr-dev
+        git commit global/rg-dev global/aks-dev helm/demo-app/dynamic/acr-dev -m "IaC deployment - dev"        
+        git push origin HEAD
