@@ -117,7 +117,7 @@ jobs:
         kubectl apply -n argocd -f ./argoCD/argo-server/argocd-service-loadbalancer.yaml        
         sleep 45
         kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
-        kubectl get svc argocd-server-loadbalancer -nargocd  -o jsonpath="{.status.loadBalancer.ingress[0].ip}" | base64 -d; echo        
+        kubectl get svc argocd-server-loadbalancer -nargocd  -o jsonpath="{.status.loadBalancer.ingress[0].ip}"        
   UpdateArgoAppRepoConfig:
     needs: [Deployment_IaC]
     runs-on: ubuntu-latest
@@ -125,7 +125,7 @@ jobs:
     - name: Use config repository
       uses: actions/checkout@v3
       with:
-        repository: ${{ github.repository_owner }}/argocd-apps-config
+        repository: ${{ github.repository_owner }}/gitops-argocd-demo
         ref: main
         token: ${{ secrets.ACTIONS_TOKEN }}
     - name: Push commit to ArgoCD App repository
