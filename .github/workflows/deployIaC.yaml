@@ -1,6 +1,6 @@
 name: IaC Deployment
 env:  
-  PREFIX: ypdemo
+  PREFIX: ypopsdemo
   REGION: westeurope
   CHECKS: CKV_AZURE_5
 # Controls when the action will run. 
@@ -62,7 +62,7 @@ jobs:
         scope: subscription
         region: ${{ env.REGION }}
         template: ./infra/dev.bicep
-        parameters: name="${{ env.PREFIX }}dev" sshpublickey="${{ secrets.SSH_PUBLIC_KEY }}"
+        parameters: name="${{ env.PREFIX }}" sshpublickey="${{ secrets.SSH_PUBLIC_KEY }}"
         additionalArguments: "--what-if"
   Deployment_IaC:
     runs-on: ubuntu-latest
@@ -88,7 +88,7 @@ jobs:
         scope: subscription
         region: ${{ env.REGION }}
         template: ./infra/dev.bicep
-        parameters: name="${{ env.PREFIX }}dev" sshpublickey="${{ secrets.PUBLIC_KEY }}"
+        parameters: name="${{ env.PREFIX }}" sshpublickey="${{ secrets.PUBLIC_KEY }}"
         failOnStdErr: false
         deploymentName: dev-${{ needs.Setup_Job.outputs.guid }}
   Install_ArgoCD:    
