@@ -1,5 +1,7 @@
 # gitops-iac-demo
 
+[![IaC Deployment](https://github.com/yaronpri/gitops-iac-demo/actions/workflows/deployIaC.yaml/badge.svg)](https://github.com/yaronpri/gitops-iac-demo/actions/workflows/deployIaC.yaml)
+
 ## About
 This repo is part of three GitOps CI/CD demo repos:
 - [IaC repo](https://github.com/yaronpri/gitops-iac-demo)
