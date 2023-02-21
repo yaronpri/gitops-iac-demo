@@ -18,6 +18,7 @@ As part of the GitHub Actions, we are executing IaC code scanning using [Checkov
 ![alt text](design/design.png)
 
 ## How to configure this repo
+- Fork this repo
 - Establish a trust between GitHub.com and your Azure subscription by configuring OpenID connect, follow [this](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-azure) article.
 - Create a PAT in your GitHub account, follow this article (we will refer [this](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) value as ACTIONS_TOKEN).
 - Generate a public SSH key to be used for AKS deployment (we will refer this value as PUBLIC_KEY).
